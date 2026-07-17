@@ -70,7 +70,7 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
 
     ++stats_.cacheMisses;
     auto program = compileUncached(desc);
-    if (!program || !program->isValid)
+    if (!program)
         return nullptr;
 
     {
@@ -193,7 +193,7 @@ void ShaderManager::update() {
         }
 
         auto fresh = compileUncached(desc);
-        if (!fresh || !fresh->isValid)
+        if (!fresh)
             continue;
 
         {
