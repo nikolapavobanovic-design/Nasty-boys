@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .io import MediaLoadError, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 from .pipeline import scan_media
+from .youtube import download_youtube_clip, is_youtube_url
 
 LOGGER = logging.getLogger("deepfake_detector")
 
@@ -105,7 +106,27 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--json", action="store_true", help="Output JSON")
     batch.add_argument("--max-frames", type=int, default=24, help="Maximum frames to inspect")
 
+    youtube = subparsers.add_parser("youtube", help="Scan a YouTube clip by URL")
+    youtube.add_argument("url", help="YouTube watch URL (e.g. https://youtu.be/...)")
+    youtube.add_argument("--json", action="store_true", help="Output JSON")
+    youtube.add_argument("--max-frames", type=int, default=24, help="Maximum frames to inspect")
+
     return parser
+
+
+def _scan_youtube(url: str, max_frames: int, as_json: bool) -> int:
+    if not is_youtube_url(url):
+        LOGGER.error("'%s' does not look like a YouTube URL", url)
+        return 2
+
+    LOGGER.info("Downloading clip from %s …", url)
+    try:
+        with download_youtube_clip(url) as clip_path:
+            LOGGER.info("Scanning %s …", clip_path.name)
+            return _scan_one(str(clip_path), max_frames=max_frames, as_json=as_json)
+    except RuntimeError as exc:
+        LOGGER.error("%s", exc)
+        return 2
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -122,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         return _scan_one(args.file, max_frames=args.max_frames, as_json=args.json)
     if args.command == "batch":
         return _scan_batch(args.inputs, max_frames=args.max_frames, as_json=args.json)
+    if args.command == "youtube":
+        return _scan_youtube(args.url, max_frames=args.max_frames, as_json=args.json)
 
     parser.error("Unknown command")
     return 2

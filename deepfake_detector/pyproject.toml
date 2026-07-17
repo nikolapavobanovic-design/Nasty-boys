@@ -18,6 +18,9 @@ dependencies = [
 dev = [
   "pytest>=8.0"
 ]
+youtube = [
+  "yt-dlp>=2023.1.6"
+]
 
 [project.scripts]
 deepfake-detector = "deepfake_detector.cli:main"
