@@ -7,6 +7,7 @@
 
 - [ ] `cmake -S shader_system -B build`
 - [ ] `cmake --build build`
+- [ ] `python -m pytest deepfake_detector/tests -q`
 
 ## Risk
 

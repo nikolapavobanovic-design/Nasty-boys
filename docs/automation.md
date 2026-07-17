@@ -13,6 +13,7 @@ Configure branch protection on the default branch to require:
 - `PR CI / build-shader-system`
 - `CodeQL / analyze`
 - `Secret scan / gitleaks`
+- `Deepfake detector CI / test-detector`
 
 ## CI entrypoint
 
@@ -34,6 +35,7 @@ to the workflow job summary when a build step fails.
 - CodeQL scans C/C++.
 - Secret scanning workflow runs with read-only repository permissions and the
   default `GITHUB_TOKEN`.
+- Deepfake detector CI runs Python tests for `deepfake_detector/`.
 
 ## Release automation
 

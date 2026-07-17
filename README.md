@@ -1,22 +1,30 @@
 # Nasty-boys
 
-Automation baseline for the `shader_system` C++17 project lives in `.github/`.
+Automation baseline for the repository lives in `.github/`.
 
 ## Project
 
-- Active module: `shader_system/`
-- Build system: CMake
+- Shader module: `shader_system/` (C++17, CMake)
+- Deepfake detector module: `deepfake_detector/` (Python)
 
 ## Validation
 
-Use the canonical validation commands:
+Shader system:
 
 ```bash
 cmake -S shader_system -B build
 cmake --build build
 ```
 
+Deepfake detector:
+
+```bash
+python -m pip install -e ./deepfake_detector[dev]
+python -m pytest deepfake_detector/tests -q
+```
+
 ## Contribution and automation docs
 
 - `CONTRIBUTING.md`
 - `docs/automation.md`
+- `docs/deepfake-detector.md`

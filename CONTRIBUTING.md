@@ -2,8 +2,9 @@
 
 ## Scope
 
-All repository automation is scoped to the shader module at:
-`shader_system/`
+Repository automation currently covers:
+- `shader_system/`
+- `deepfake_detector/`
 
 ## Local validation
 
@@ -12,6 +13,8 @@ Run this before opening a PR:
 ```bash
 cmake -S shader_system -B build
 cmake --build build
+python -m pip install -e ./deepfake_detector[dev]
+python -m pytest deepfake_detector/tests -q
 ```
 
 ## Commit and PR expectations
