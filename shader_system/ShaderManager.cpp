@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -142,6 +143,8 @@ std::shared_ptr<ShaderProgram> ShaderManager::compileUncached(const ShaderProgra
         ShaderCompileResult res = compiler_->compile(s.path, s.entry,
                                                       s.stage, desc.defines);
         if (!res.success) {
+            std::cerr << "Shader compilation failed (" << s.path
+                      << ", entry=" << s.entry << "): " << res.errorMsg << "\n";
             return nullptr;
         }
         program->stageBytecode[static_cast<uint8_t>(s.stage)] =
