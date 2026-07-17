@@ -4,7 +4,7 @@ Automation baseline for the `shader_system` C++17 project lives in `.github/`.
 
 ## Project
 
-- Active module: `/home/runner/work/Nasty-boys/Nasty-boys/shader_system`
+- Active module: `shader_system/`
 - Build system: CMake
 
 ## Validation
@@ -18,5 +18,5 @@ cmake --build build
 
 ## Contribution and automation docs
 
-- `/home/runner/work/Nasty-boys/Nasty-boys/CONTRIBUTING.md`
-- `/home/runner/work/Nasty-boys/Nasty-boys/docs/automation.md`
+- `CONTRIBUTING.md`
+- `docs/automation.md`
