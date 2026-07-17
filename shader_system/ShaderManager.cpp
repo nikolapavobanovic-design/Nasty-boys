@@ -193,8 +193,13 @@ void ShaderManager::update() {
         }
 
         auto fresh = compileUncached(desc);
-        if (!fresh)
+        if (!fresh) {
+            std::lock_guard<std::mutex> lock(cacheMutex_);
+            auto& watched = watchedFiles_[key];
+            for (auto& [path, stamp] : watched)
+                stamp = fileWriteTime(path);
             continue;
+        }
 
         {
             std::lock_guard<std::mutex> lock(cacheMutex_);
