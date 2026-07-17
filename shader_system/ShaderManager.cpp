@@ -70,6 +70,8 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
 
     ++stats_.cacheMisses;
     auto program = compileUncached(desc);
+    if (!program || !program->isValid)
+        return nullptr;
 
     {
         std::lock_guard<std::mutex> lock(cacheMutex_);
@@ -140,8 +142,7 @@ std::shared_ptr<ShaderProgram> ShaderManager::compileUncached(const ShaderProgra
         ShaderCompileResult res = compiler_->compile(s.path, s.entry,
                                                       s.stage, desc.defines);
         if (!res.success) {
-            program->isValid = false;
-            return program;
+            return nullptr;
         }
         program->stageBytecode[static_cast<uint8_t>(s.stage)] =
             std::move(res.bytecode);
@@ -192,6 +193,8 @@ void ShaderManager::update() {
         }
 
         auto fresh = compileUncached(desc);
+        if (!fresh || !fresh->isValid)
+            continue;
 
         {
             std::lock_guard<std::mutex> lock(cacheMutex_);
