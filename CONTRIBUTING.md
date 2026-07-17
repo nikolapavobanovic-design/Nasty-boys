@@ -3,7 +3,7 @@
 ## Scope
 
 All repository automation is scoped to the shader module at:
-`/home/runner/work/Nasty-boys/Nasty-boys/shader_system`
+`shader_system/`
 
 ## Local validation
 
