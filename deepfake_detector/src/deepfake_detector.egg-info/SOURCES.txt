@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+src/deepfake_detector/__init__.py
+src/deepfake_detector/cli.py
+src/deepfake_detector/features.py
+src/deepfake_detector/io.py
+src/deepfake_detector/pipeline.py
+src/deepfake_detector.egg-info/PKG-INFO
+src/deepfake_detector.egg-info/SOURCES.txt
+src/deepfake_detector.egg-info/dependency_links.txt
+src/deepfake_detector.egg-info/entry_points.txt
+src/deepfake_detector.egg-info/requires.txt
+src/deepfake_detector.egg-info/top_level.txt
+tests/test_cli.py
+tests/test_pipeline.py

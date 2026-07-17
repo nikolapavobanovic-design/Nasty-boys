@@ -1,0 +1,6 @@
+numpy>=1.24
+Pillow>=10.0
+imageio>=2.34
+
+[dev]
+pytest>=8.0
