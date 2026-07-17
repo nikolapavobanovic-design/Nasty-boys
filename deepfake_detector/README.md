@@ -17,6 +17,12 @@ It performs heuristic signal checks on image and video inputs and reports:
 python -m pip install -e ./deepfake_detector[dev]
 ```
 
+Install with YouTube support:
+
+```bash
+python -m pip install -e './deepfake_detector[youtube]'
+```
+
 ## Usage
 
 Scan one file:
@@ -25,9 +31,16 @@ Scan one file:
 deepfake-detector scan /path/to/file.png
 ```
 
+Scan a YouTube clip by URL:
+
+```bash
+deepfake-detector youtube https://youtu.be/dQw4w9WgXcQ
+```
+
 JSON output:
 
 ```bash
+deepfake-detector youtube https://youtu.be/dQw4w9WgXcQ --json
 deepfake-detector scan /path/to/file.mp4 --json
 ```
 
