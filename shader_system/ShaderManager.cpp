@@ -39,7 +39,17 @@ static uint64_t fnv1a(const std::string& s) {
 ShaderManager::ShaderManager(GraphicsAPI api)
     : api_(api), compiler_(ShaderCompilerFactory::create(api)) {}
 
-ShaderManager::~ShaderManager() = default;
+ShaderManager::~ShaderManager() {
+    // Wait for all in-flight async compilations so that lambdas that captured
+    // `this` finish before the object is destroyed.
+    std::vector<std::future<void>> toWait;
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        toWait = std::move(pendingFutures_);
+    }
+    for (auto& f : toWait)
+        if (f.valid()) f.wait();
+}
 
 // ---- cache keys ----
 
@@ -73,6 +83,7 @@ std::string ShaderManager::cacheKey(const ShaderProgramSource& src) {
 // ---- shared stats helper ----
 
 void ShaderManager::updateCompileStats(double ms) {
+    std::lock_guard<std::mutex> lock(statsMutex_);
     ++stats_.compilationCount;
     if (stats_.compilationCount == 1)
         stats_.averageCompileTime = ms;
@@ -91,13 +102,19 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
         std::lock_guard<std::mutex> lock(cacheMutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
-            ++stats_.cacheHits;
+            {
+                std::lock_guard<std::mutex> slock(statsMutex_);
+                ++stats_.cacheHits;
+            }
             touchLRU(key);
             return it->second;
         }
     }
 
-    ++stats_.cacheMisses;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        ++stats_.cacheMisses;
+    }
     auto program = compileUncached(desc);
     if (!program)
         return nullptr;
@@ -131,8 +148,27 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
 
 std::future<std::shared_ptr<ShaderProgram>>
 ShaderManager::compileAsync(const ShaderProgramCPU& desc) {
-    return std::async(std::launch::async,
-                      [this, desc]() { return compile(desc); });
+    // Use a shared promise so the caller's future and an internal tracking
+    // future can both be derived from the same async task.  The internal
+    // future is stored in pendingFutures_ and awaited by the destructor,
+    // guaranteeing that `this` is valid for the entire duration of the lambda.
+    auto promise = std::make_shared<std::promise<std::shared_ptr<ShaderProgram>>>();
+    auto userFuture = promise->get_future();
+
+    auto taskFuture = std::async(std::launch::async,
+        [this, desc, promise]() mutable {
+            try {
+                promise->set_value(compile(desc));
+            } catch (...) {
+                promise->set_exception(std::current_exception());
+            }
+        });
+
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        pendingFutures_.push_back(std::move(taskFuture));
+    }
+    return userFuture;
 }
 
 // ---- compile variants ----
@@ -163,13 +199,19 @@ ShaderManager::compileFromSource(const ShaderProgramSource& src) {
         std::lock_guard<std::mutex> lock(cacheMutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
-            ++stats_.cacheHits;
+            {
+                std::lock_guard<std::mutex> slock(statsMutex_);
+                ++stats_.cacheHits;
+            }
             touchLRU(key);
             return it->second;
         }
     }
 
-    ++stats_.cacheMisses;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        ++stats_.cacheMisses;
+    }
     auto program = compileUncachedFromSource(src);
     if (!program)
         return nullptr;
@@ -188,8 +230,23 @@ ShaderManager::compileFromSource(const ShaderProgramSource& src) {
 
 std::future<std::shared_ptr<ShaderProgram>>
 ShaderManager::compileFromSourceAsync(const ShaderProgramSource& src) {
-    return std::async(std::launch::async,
-                      [this, src]() { return compileFromSource(src); });
+    auto promise = std::make_shared<std::promise<std::shared_ptr<ShaderProgram>>>();
+    auto userFuture = promise->get_future();
+
+    auto taskFuture = std::async(std::launch::async,
+        [this, src, promise]() mutable {
+            try {
+                promise->set_value(compileFromSource(src));
+            } catch (...) {
+                promise->set_exception(std::current_exception());
+            }
+        });
+
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        pendingFutures_.push_back(std::move(taskFuture));
+    }
+    return userFuture;
 }
 
 // ---- compileUncached (private, file-based) ----
@@ -217,8 +274,11 @@ std::shared_ptr<ShaderProgram> ShaderManager::compileUncached(const ShaderProgra
     for (const auto& s : stages) {
         if (s.path.empty()) continue;
 
-        ShaderCompileResult res = compiler_->compile(s.path, s.entry,
-                                                      s.stage, desc.defines);
+        ShaderCompileResult res;
+        {
+            std::lock_guard<std::mutex> lock(compilerMutex_);
+            res = compiler_->compile(s.path, s.entry, s.stage, desc.defines);
+        }
         if (!res.success) {
             std::cerr << "Shader compilation failed (" << s.path
                       << ", entry=" << s.entry << "): " << res.errorMsg << "\n";
@@ -263,8 +323,11 @@ ShaderManager::compileUncachedFromSource(const ShaderProgramSource& src) {
     for (const auto& s : stages) {
         if (s.source.empty()) continue;
 
-        ShaderCompileResult res = compiler_->compileSource(s.source, s.entry,
-                                                            s.stage, src.defines);
+        ShaderCompileResult res;
+        {
+            std::lock_guard<std::mutex> lock(compilerMutex_);
+            res = compiler_->compileSource(s.source, s.entry, s.stage, src.defines);
+        }
         if (!res.success) {
             std::cerr << "Shader compilation failed (in-memory source"
                       << ", entry=" << s.entry << "): " << res.errorMsg << "\n";
@@ -413,15 +476,23 @@ void ShaderManager::loadDiskCache(const std::string& directory) {
 // ---- statistics ----
 
 const ShaderManagerStats& ShaderManager::getStatistics() const {
+    // statsMutex_ is mutable; callers must treat the returned reference as a
+    // snapshot – the values can change as soon as the lock is released.
+    std::lock_guard<std::mutex> lock(statsMutex_);
     return stats_;
 }
 
 void ShaderManager::resetStatistics() {
+    std::lock_guard<std::mutex> lock(statsMutex_);
     stats_ = {};
 }
 
 std::string ShaderManager::statisticsToJson() const {
-    const auto& s = stats_;
+    ShaderManagerStats s;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        s = stats_;
+    }
     std::ostringstream oss;
     oss << "{\n"
         << "  \"compilationCount\": "   << s.compilationCount   << ",\n"
