@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [cpp]
+        language: [python]
 
     steps:
       - name: Checkout
@@ -33,11 +33,6 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-
-      - name: Build
-        run: |
-          cmake -S shader_system -B build
-          cmake --build build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
