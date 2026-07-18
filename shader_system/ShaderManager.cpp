@@ -65,6 +65,7 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             ++stats_.cacheHits;
+            touchLRU(key);
             return it->second;
         }
     }
@@ -78,6 +79,7 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
         std::lock_guard<std::mutex> lock(cacheMutex_);
         cache_[key]       = program;
         descriptors_[key] = desc;
+        touchLRU(key);
 
         if (desc.enableHotReload) {
             auto& watched = watchedFiles_[key];
@@ -229,6 +231,8 @@ void ShaderManager::clearMemoryCache() {
     cache_.clear();
     watchedFiles_.clear();
     descriptors_.clear();
+    lruOrder_.clear();
+    lruPos_.clear();
 }
 
 void ShaderManager::saveDiskCache(const std::string& directory) const {
@@ -285,4 +289,41 @@ const ShaderManagerStats& ShaderManager::getStatistics() const {
 
 void ShaderManager::resetStatistics() {
     stats_ = {};
+}
+
+std::string ShaderManager::statisticsToJson() const {
+    const auto& s = stats_;
+    std::ostringstream oss;
+    oss << "{\n"
+        << "  \"compilationCount\": "   << s.compilationCount   << ",\n"
+        << "  \"cacheHits\": "          << s.cacheHits          << ",\n"
+        << "  \"cacheMisses\": "        << s.cacheMisses        << ",\n"
+        << "  \"averageCompileTime\": " << s.averageCompileTime << "\n"
+        << "}";
+    return oss.str();
+}
+
+// ---- LRU helpers ----
+
+void ShaderManager::touchLRU(const std::string& key) {
+    // Remove existing position if present, then push to front.
+    auto it = lruPos_.find(key);
+    if (it != lruPos_.end())
+        lruOrder_.erase(it->second);
+    lruOrder_.push_front(key);
+    lruPos_[key] = lruOrder_.begin();
+}
+
+// ---- cache management (eviction) ----
+
+void ShaderManager::evictLRU(size_t maxEntries) {
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    while (cache_.size() > maxEntries && !lruOrder_.empty()) {
+        const std::string& lruKey = lruOrder_.back();
+        cache_.erase(lruKey);
+        descriptors_.erase(lruKey);
+        watchedFiles_.erase(lruKey);
+        lruPos_.erase(lruKey);
+        lruOrder_.pop_back();
+    }
 }
