@@ -37,7 +37,11 @@ def _confidence_from_score(authenticity_score: float, frame_count: int) -> float
     return float(np.clip(confidence, 0.0, 1.0))
 
 
-def scan_media(path: str | Path, max_frames: int = 24) -> DetectionResult:
+def scan_media(
+    path: str | Path,
+    max_frames: int = 24,
+    threshold: float = 0.5,
+) -> DetectionResult:
     input_path = str(path)
     frames = load_media_frames(input_path, max_frames=max_frames)
     if not frames:
@@ -52,6 +56,6 @@ def scan_media(path: str | Path, max_frames: int = 24) -> DetectionResult:
         input_path=input_path,
         authenticity_score=authenticity_score,
         confidence=confidence,
-        likely_synthetic=authenticity_score < 0.5,
+        likely_synthetic=authenticity_score < threshold,
         signals=signals,
     )
