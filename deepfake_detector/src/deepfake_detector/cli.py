@@ -53,18 +53,39 @@ def _collect_media_files(paths: list[str]) -> list[Path]:
     return collected
 
 
-def _scan_one(input_path: str, max_frames: int, as_json: bool) -> int:
+def _write_json_file(data: object, path: str) -> None:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    LOGGER.info("JSON results written to %s", out)
+
+
+def _scan_one(
+    input_path: str,
+    max_frames: int,
+    as_json: bool,
+    threshold: float,
+    output_json: str | None,
+) -> int:
     try:
-        result = asdict(scan_media(input_path, max_frames=max_frames))
+        result = asdict(scan_media(input_path, max_frames=max_frames, threshold=threshold))
     except MediaLoadError as exc:
         LOGGER.error("Failed to scan '%s': %s", input_path, exc)
         return 2
 
     _print_result(result, as_json=as_json)
+    if output_json is not None:
+        _write_json_file(result, output_json)
     return 0
 
 
-def _scan_batch(input_paths: list[str], max_frames: int, as_json: bool) -> int:
+def _scan_batch(
+    input_paths: list[str],
+    max_frames: int,
+    as_json: bool,
+    threshold: float,
+    output_json: str | None,
+) -> int:
     files = _collect_media_files(input_paths)
     if not files:
         LOGGER.error("No supported media files found in provided paths")
@@ -74,7 +95,7 @@ def _scan_batch(input_paths: list[str], max_frames: int, as_json: bool) -> int:
     results = []
     for path in files:
         try:
-            result = asdict(scan_media(str(path), max_frames=max_frames))
+            result = asdict(scan_media(str(path), max_frames=max_frames, threshold=threshold))
             results.append(result)
         except MediaLoadError as exc:
             LOGGER.error("Failed to scan '%s': %s", path, exc)
@@ -86,6 +107,9 @@ def _scan_batch(input_paths: list[str], max_frames: int, as_json: bool) -> int:
         for result in results:
             _print_result(result, as_json=False)
             print()
+
+    if output_json is not None:
+        _write_json_file(results, output_json)
 
     return 1 if failures else 0
 
@@ -100,21 +124,51 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("file", help="Path to media file")
     scan.add_argument("--json", action="store_true", help="Output JSON")
     scan.add_argument("--max-frames", type=int, default=24, help="Maximum frames to inspect")
+    scan.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        metavar="T",
+        help="Authenticity score threshold; media scoring below T is flagged synthetic (default: 0.5)",
+    )
+    scan.add_argument("--output-json", metavar="FILE", help="Write results as JSON to FILE")
 
     batch = subparsers.add_parser("batch", help="Scan multiple files or directories")
     batch.add_argument("inputs", nargs="+", help="Files or directories to scan")
     batch.add_argument("--json", action="store_true", help="Output JSON")
     batch.add_argument("--max-frames", type=int, default=24, help="Maximum frames to inspect")
+    batch.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        metavar="T",
+        help="Authenticity score threshold; media scoring below T is flagged synthetic (default: 0.5)",
+    )
+    batch.add_argument("--output-json", metavar="FILE", help="Write results as JSON to FILE")
 
     youtube = subparsers.add_parser("youtube", help="Scan a YouTube clip by URL")
     youtube.add_argument("url", help="YouTube watch URL (e.g. https://youtu.be/...)")
     youtube.add_argument("--json", action="store_true", help="Output JSON")
     youtube.add_argument("--max-frames", type=int, default=24, help="Maximum frames to inspect")
+    youtube.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        metavar="T",
+        help="Authenticity score threshold; media scoring below T is flagged synthetic (default: 0.5)",
+    )
+    youtube.add_argument("--output-json", metavar="FILE", help="Write results as JSON to FILE")
 
     return parser
 
 
-def _scan_youtube(url: str, max_frames: int, as_json: bool) -> int:
+def _scan_youtube(
+    url: str,
+    max_frames: int,
+    as_json: bool,
+    threshold: float,
+    output_json: str | None,
+) -> int:
     if not is_youtube_url(url):
         LOGGER.error("'%s' does not look like a YouTube URL", url)
         return 2
@@ -123,7 +177,13 @@ def _scan_youtube(url: str, max_frames: int, as_json: bool) -> int:
     try:
         with download_youtube_clip(url) as clip_path:
             LOGGER.info("Scanning %s …", clip_path.name)
-            return _scan_one(str(clip_path), max_frames=max_frames, as_json=as_json)
+            return _scan_one(
+                str(clip_path),
+                max_frames=max_frames,
+                as_json=as_json,
+                threshold=threshold,
+                output_json=output_json,
+            )
     except RuntimeError as exc:
         LOGGER.error("%s", exc)
         return 2
@@ -139,12 +199,37 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.error("--max-frames must be > 0")
         return 2
 
+    if not 0.0 <= args.threshold <= 1.0:
+        LOGGER.error("--threshold must be between 0.0 and 1.0")
+        return 2
+
+    threshold = args.threshold
+    output_json = args.output_json
+
     if args.command == "scan":
-        return _scan_one(args.file, max_frames=args.max_frames, as_json=args.json)
+        return _scan_one(
+            args.file,
+            max_frames=args.max_frames,
+            as_json=args.json,
+            threshold=threshold,
+            output_json=output_json,
+        )
     if args.command == "batch":
-        return _scan_batch(args.inputs, max_frames=args.max_frames, as_json=args.json)
+        return _scan_batch(
+            args.inputs,
+            max_frames=args.max_frames,
+            as_json=args.json,
+            threshold=threshold,
+            output_json=output_json,
+        )
     if args.command == "youtube":
-        return _scan_youtube(args.url, max_frames=args.max_frames, as_json=args.json)
+        return _scan_youtube(
+            args.url,
+            max_frames=args.max_frames,
+            as_json=args.json,
+            threshold=threshold,
+            output_json=output_json,
+        )
 
     parser.error("Unknown command")
     return 2
