@@ -1,13 +1,7 @@
 name: Push CI
 
 on:
-  push:
-    branches: [main, master]
-    paths:
-      - "shader_system/**"
-      - ".github/**"
-      - "CONTRIBUTING.md"
-      - "docs/**"
+  workflow_dispatch:
 
 concurrency:
   group: push-ci-${{ github.ref }}
@@ -17,50 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  build-shader-system:
-    name: build-shader-system
+  shader-system-upload-disabled:
+    name: shader-system-upload-disabled
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/ci-logs"
-          cmake -S shader_system -B build 2>&1 | tee "$RUNNER_TEMP/ci-logs/configure.log"
-
-      - name: Build
-        shell: bash
-        run: |
-          set -o pipefail
-          cmake --build build 2>&1 | tee "$RUNNER_TEMP/ci-logs/build.log"
-
-      - name: Upload CI logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: push-ci-logs-${{ github.run_number }}
-          path: |
-            ${{ runner.temp }}/ci-logs/configure.log
-            ${{ runner.temp }}/ci-logs/build.log
-          if-no-files-found: warn
-
-      - name: Failure summary
-        if: failure()
-        shell: bash
-        run: |
-          {
-            echo "## Push CI failure summary"
-            echo ""
-            echo "### Configure log tail"
-            echo '```'
-            tail -n 80 "$RUNNER_TEMP/ci-logs/configure.log" || true
-            echo '```'
-            echo ""
-            echo "### Build log tail"
-            echo '```'
-            tail -n 80 "$RUNNER_TEMP/ci-logs/build.log" || true
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Shader system upload disabled
+        run: echo "Shader system CI upload/build workflow has been disabled."
