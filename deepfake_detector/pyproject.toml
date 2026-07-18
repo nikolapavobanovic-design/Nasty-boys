@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepfake-detector"
+version = "0.1.0"
+description = "Heuristic detector for synthetic media signals"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "Pillow>=10.0",
+  "imageio>=2.34"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0"
+]
+youtube = [
+  "yt-dlp>=2023.1.6"
+]
+
+[project.scripts]
+deepfake-detector = "deepfake_detector.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
