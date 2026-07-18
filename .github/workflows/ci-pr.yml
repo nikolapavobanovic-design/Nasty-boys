@@ -1,0 +1,19 @@
+name: PR CI
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shader-system-upload-disabled:
+    name: shader-system-upload-disabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: Shader system upload disabled
+        run: echo "Shader system CI upload/build workflow has been disabled."

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Automation documentation
+    url: https://github.com/nikolapavobanovic-design/Nasty-boys/blob/main/docs/automation.md
+    about: Review CI, security, and release automation policies.

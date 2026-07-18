@@ -1,0 +1,19 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  shader-system-release-upload-disabled:
+    name: shader-system-release-upload-disabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: Shader system release upload disabled
+        run: echo "Shader system release artifact upload has been disabled."

@@ -101,7 +101,7 @@ public:
     // Stats
     // -----------------------------------------------------------------------
 
-    const ShaderManagerStats& getStatistics() const;
+    ShaderManagerStats getStatistics() const;
     void resetStatistics();
 
     // Returns a JSON string representation of the current statistics.
