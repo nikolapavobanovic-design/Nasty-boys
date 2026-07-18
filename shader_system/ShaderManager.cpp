@@ -179,7 +179,7 @@ ShaderManager::compileAsync(const ShaderProgramCPU& desc) {
     auto userFuture = promise->get_future();
 
     auto taskFuture = std::async(std::launch::async,
-        [this, desc, promise]() mutable {
+        [this, desc, promise]() {
             try {
                 promise->set_value(compile(desc));
             } catch (...) {
@@ -257,7 +257,7 @@ ShaderManager::compileFromSourceAsync(const ShaderProgramSource& src) {
     auto userFuture = promise->get_future();
 
     auto taskFuture = std::async(std::launch::async,
-        [this, src, promise]() mutable {
+        [this, src, promise]() {
             try {
                 promise->set_value(compileFromSource(src));
             } catch (...) {
@@ -498,9 +498,7 @@ void ShaderManager::loadDiskCache(const std::string& directory) {
 
 // ---- statistics ----
 
-const ShaderManagerStats& ShaderManager::getStatistics() const {
-    // statsMutex_ is mutable; callers must treat the returned reference as a
-    // snapshot – the values can change as soon as the lock is released.
+ShaderManagerStats ShaderManager::getStatistics() const {
     std::lock_guard<std::mutex> lock(statsMutex_);
     return stats_;
 }
