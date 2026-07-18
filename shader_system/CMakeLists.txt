@@ -22,11 +22,6 @@ target_include_directories(ShaderSystemLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(ShaderExample Example.cpp)
 target_link_libraries(ShaderExample PRIVATE ShaderSystemLib)
-add_custom_command(TARGET ShaderExample POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/example_shaders
-            $<TARGET_FILE_DIR:ShaderExample>/example_shaders
-)
 
 # On MSVC link against D3DCompiler when building for DirectX (optional)
 if(MSVC)
@@ -46,6 +41,3 @@ add_executable(ShaderSystemTests tests/test_factory.cpp)
 target_link_libraries(ShaderSystemTests PRIVATE ShaderSystemLib)
 
 add_test(NAME ShaderSystemTests COMMAND ShaderSystemTests)
-set_tests_properties(ShaderSystemTests PROPERTIES
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-)

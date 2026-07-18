@@ -61,9 +61,7 @@ def test_cli_youtube_scans_downloaded_clip(tmp_path: Path) -> None:
     clip = tmp_path / "clip.gif"
     _write_gif(clip)
 
-    @contextlib.contextmanager
-    def fake_download(_url: str):
-        yield clip
+    fake_download = contextlib.contextmanager(lambda url: (yield clip))
 
     from deepfake_detector.cli import main
 

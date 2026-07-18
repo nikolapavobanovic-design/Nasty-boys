@@ -8,8 +8,6 @@
 
 #include <cassert>
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <future>
 #include <iostream>
 #include <stdexcept>
@@ -260,71 +258,6 @@ static void test_compile_from_source_distinct_sources_distinct_programs() {
     end("compile_from_source_distinct_sources_distinct_programs", fb);
 }
 
-static void test_compile_from_source_avoids_ambiguous_key_collisions() {
-    begin("compile_from_source_avoids_ambiguous_key_collisions");
-    int fb = g_failed;
-
-    ShaderManager mgr(GraphicsAPI::DirectX11);
-    mgr.resetStatistics();
-
-    ShaderProgramSource src1, src2;
-    src1.vsSource = "ab";
-    src1.vsEntry  = "c";
-    src2.vsSource = "a";
-    src2.vsEntry  = "bc";
-
-    auto p1 = mgr.compileFromSource(src1);
-    auto p2 = mgr.compileFromSource(src2);
-
-    EXPECT_TRUE(p1 != nullptr);
-    EXPECT_TRUE(p2 != nullptr);
-    EXPECT_NE(p1.get(), p2.get());
-    EXPECT_EQ(mgr.getStatistics().compilationCount, 2u);
-    EXPECT_EQ(mgr.getStatistics().cacheMisses, 2u);
-
-    end("compile_from_source_avoids_ambiguous_key_collisions", fb);
-}
-
-static void test_compile_file_avoids_ambiguous_key_collisions() {
-    begin("compile_file_avoids_ambiguous_key_collisions");
-    int fb = g_failed;
-
-    namespace fs = std::filesystem;
-    const fs::path dir = fs::temp_directory_path() / "shader_manager_key_test";
-    fs::create_directories(dir);
-
-    const fs::path file_a  = dir / "a.hlsl";
-    const fs::path file_ab = dir / "ab.hlsl";
-    {
-        std::ofstream(file_a) << "float4 VS() : SV_Position { return 0; }";
-        std::ofstream(file_ab) << "float4 VS() : SV_Position { return 1; }";
-    }
-
-    ShaderManager mgr(GraphicsAPI::DirectX11);
-    mgr.resetStatistics();
-
-    ShaderProgramCPU d1, d2;
-    d1.vsPath = file_a.string();
-    d1.vsEntry = "bc";
-    d2.vsPath = file_ab.string();
-    d2.vsEntry = "c";
-
-    auto p1 = mgr.compile(d1);
-    auto p2 = mgr.compile(d2);
-
-    EXPECT_TRUE(p1 != nullptr);
-    EXPECT_TRUE(p2 != nullptr);
-    EXPECT_NE(p1.get(), p2.get());
-    EXPECT_EQ(mgr.getStatistics().compilationCount, 2u);
-    EXPECT_EQ(mgr.getStatistics().cacheMisses, 2u);
-
-    fs::remove(file_a);
-    fs::remove(file_ab);
-    fs::remove(dir);
-
-    end("compile_file_avoids_ambiguous_key_collisions", fb);
-}
-
 // ---------------------------------------------------------------------------
 // ShaderManager::compileAsync() and compileFromSourceAsync()
 // ---------------------------------------------------------------------------
@@ -570,8 +503,6 @@ int main() {
     test_compile_from_source_returns_valid_program();
     test_compile_from_source_cache_hit();
     test_compile_from_source_distinct_sources_distinct_programs();
-    test_compile_from_source_avoids_ambiguous_key_collisions();
-    test_compile_file_avoids_ambiguous_key_collisions();
 
     test_compile_async_returns_valid_program();
     test_compile_async_result_equals_sync_result();

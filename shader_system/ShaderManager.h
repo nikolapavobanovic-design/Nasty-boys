@@ -32,6 +32,7 @@ public:
     using ReloadCallback = std::function<void(const std::string& cacheKey)>;
 
     explicit ShaderManager(GraphicsAPI api);
+    // Waits for all in-flight async compilations before destroying the object.
     ~ShaderManager();
 
     // -----------------------------------------------------------------------
@@ -139,6 +140,8 @@ private:
 
     GraphicsAPI                    api_;
     std::unique_ptr<IShaderCompiler> compiler_;
+    // Serialises concurrent calls into the (non-thread-safe) compiler.
+    std::mutex                     compilerMutex_;
 
     // Memory cache:  cacheKey -> compiled program
     mutable std::mutex                                            cacheMutex_;
@@ -158,5 +161,13 @@ private:
 
     size_t           cacheCapacity_ = 0; // 0 = unlimited
     ReloadCallback   reloadCallback_;
+
+    // Protects stats_ from concurrent access by async workers.
+    mutable std::mutex statsMutex_;
     ShaderManagerStats stats_;
+
+    // Tracks in-flight futures so the destructor can join them before `this`
+    // becomes invalid (prevents dangling-pointer UB).
+    std::mutex                     pendingMutex_;
+    std::vector<std::future<void>> pendingFutures_;
 };

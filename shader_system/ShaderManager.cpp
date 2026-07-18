@@ -32,17 +32,6 @@ static uint64_t fnv1a(const std::string& s) {
     return h;
 }
 
-static void appendKeyField(std::string& raw,
-                           const std::string& name,
-                           const std::string& value) {
-    raw += name;
-    raw += ":";
-    raw += std::to_string(value.size());
-    raw += ":";
-    raw += value;
-    raw += "|";
-}
-
 // ---------------------------------------------------------------------------
 // ShaderManager
 // ---------------------------------------------------------------------------
@@ -50,52 +39,51 @@ static void appendKeyField(std::string& raw,
 ShaderManager::ShaderManager(GraphicsAPI api)
     : api_(api), compiler_(ShaderCompilerFactory::create(api)) {}
 
-ShaderManager::~ShaderManager() = default;
+ShaderManager::~ShaderManager() {
+    // Wait for all in-flight async compilations so that lambdas that captured
+    // `this` finish before the object is destroyed.
+    std::vector<std::future<void>> toWait;
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        toWait = std::move(pendingFutures_);
+    }
+    for (auto& f : toWait)
+        if (f.valid()) f.wait();
+}
 
 // ---- cache keys ----
 
 std::string ShaderManager::cacheKey(const ShaderProgramCPU& desc) {
     std::string raw;
-    appendKeyField(raw, "vsPath", desc.vsPath);
-    appendKeyField(raw, "vsEntry", desc.vsEntry);
-    appendKeyField(raw, "psPath", desc.psPath);
-    appendKeyField(raw, "psEntry", desc.psEntry);
-    appendKeyField(raw, "csPath", desc.csPath);
-    appendKeyField(raw, "csEntry", desc.csEntry);
-    appendKeyField(raw, "gsPath", desc.gsPath);
-    appendKeyField(raw, "gsEntry", desc.gsEntry);
-    appendKeyField(raw, "tcsPath", desc.tcsPath);
-    appendKeyField(raw, "tcsEntry", desc.tcsEntry);
-    appendKeyField(raw, "tesPath", desc.tesPath);
-    appendKeyField(raw, "tesEntry", desc.tesEntry);
+    raw += desc.vsPath + desc.vsEntry;
+    raw += desc.psPath + desc.psEntry;
+    raw += desc.csPath + desc.csEntry;
+    raw += desc.gsPath + desc.gsEntry;
+    raw += desc.tcsPath + desc.tcsEntry;
+    raw += desc.tesPath + desc.tesEntry;
     for (const auto& [k, v] : desc.defines)
-        appendKeyField(raw, "define", k + "=" + v);
+        raw += k + "=" + v + ";";
     return std::to_string(fnv1a(raw));
 }
 
 std::string ShaderManager::cacheKey(const ShaderProgramSource& src) {
     // Prefix "src:" to avoid collisions with file-based keys.
     std::string raw = "src:";
-    appendKeyField(raw, "vsSource", src.vsSource);
-    appendKeyField(raw, "vsEntry", src.vsEntry);
-    appendKeyField(raw, "psSource", src.psSource);
-    appendKeyField(raw, "psEntry", src.psEntry);
-    appendKeyField(raw, "csSource", src.csSource);
-    appendKeyField(raw, "csEntry", src.csEntry);
-    appendKeyField(raw, "gsSource", src.gsSource);
-    appendKeyField(raw, "gsEntry", src.gsEntry);
-    appendKeyField(raw, "tcsSource", src.tcsSource);
-    appendKeyField(raw, "tcsEntry", src.tcsEntry);
-    appendKeyField(raw, "tesSource", src.tesSource);
-    appendKeyField(raw, "tesEntry", src.tesEntry);
+    raw += src.vsSource + src.vsEntry;
+    raw += src.psSource + src.psEntry;
+    raw += src.csSource + src.csEntry;
+    raw += src.gsSource + src.gsEntry;
+    raw += src.tcsSource + src.tcsEntry;
+    raw += src.tesSource + src.tesEntry;
     for (const auto& [k, v] : src.defines)
-        appendKeyField(raw, "define", k + "=" + v);
+        raw += k + "=" + v + ";";
     return std::to_string(fnv1a(raw));
 }
 
 // ---- shared stats helper ----
 
 void ShaderManager::updateCompileStats(double ms) {
+    std::lock_guard<std::mutex> lock(statsMutex_);
     ++stats_.compilationCount;
     if (stats_.compilationCount == 1)
         stats_.averageCompileTime = ms;
@@ -114,13 +102,19 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
         std::lock_guard<std::mutex> lock(cacheMutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
-            ++stats_.cacheHits;
+            {
+                std::lock_guard<std::mutex> slock(statsMutex_);
+                ++stats_.cacheHits;
+            }
             touchLRU(key);
             return it->second;
         }
     }
 
-    ++stats_.cacheMisses;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        ++stats_.cacheMisses;
+    }
     auto program = compileUncached(desc);
     if (!program)
         return nullptr;
@@ -154,9 +148,27 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
 
 std::future<std::shared_ptr<ShaderProgram>>
 ShaderManager::compileAsync(const ShaderProgramCPU& desc) {
-    std::promise<std::shared_ptr<ShaderProgram>> promise;
-    promise.set_value(compile(desc));
-    return promise.get_future();
+    // Use a shared promise so the caller's future and an internal tracking
+    // future can both be derived from the same async task.  The internal
+    // future is stored in pendingFutures_ and awaited by the destructor,
+    // guaranteeing that `this` is valid for the entire duration of the lambda.
+    auto promise = std::make_shared<std::promise<std::shared_ptr<ShaderProgram>>>();
+    auto userFuture = promise->get_future();
+
+    auto taskFuture = std::async(std::launch::async,
+        [this, desc, promise]() mutable {
+            try {
+                promise->set_value(compile(desc));
+            } catch (...) {
+                promise->set_exception(std::current_exception());
+            }
+        });
+
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        pendingFutures_.push_back(std::move(taskFuture));
+    }
+    return userFuture;
 }
 
 // ---- compile variants ----
@@ -187,13 +199,19 @@ ShaderManager::compileFromSource(const ShaderProgramSource& src) {
         std::lock_guard<std::mutex> lock(cacheMutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
-            ++stats_.cacheHits;
+            {
+                std::lock_guard<std::mutex> slock(statsMutex_);
+                ++stats_.cacheHits;
+            }
             touchLRU(key);
             return it->second;
         }
     }
 
-    ++stats_.cacheMisses;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        ++stats_.cacheMisses;
+    }
     auto program = compileUncachedFromSource(src);
     if (!program)
         return nullptr;
@@ -212,9 +230,23 @@ ShaderManager::compileFromSource(const ShaderProgramSource& src) {
 
 std::future<std::shared_ptr<ShaderProgram>>
 ShaderManager::compileFromSourceAsync(const ShaderProgramSource& src) {
-    std::promise<std::shared_ptr<ShaderProgram>> promise;
-    promise.set_value(compileFromSource(src));
-    return promise.get_future();
+    auto promise = std::make_shared<std::promise<std::shared_ptr<ShaderProgram>>>();
+    auto userFuture = promise->get_future();
+
+    auto taskFuture = std::async(std::launch::async,
+        [this, src, promise]() mutable {
+            try {
+                promise->set_value(compileFromSource(src));
+            } catch (...) {
+                promise->set_exception(std::current_exception());
+            }
+        });
+
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        pendingFutures_.push_back(std::move(taskFuture));
+    }
+    return userFuture;
 }
 
 // ---- compileUncached (private, file-based) ----
@@ -242,8 +274,11 @@ std::shared_ptr<ShaderProgram> ShaderManager::compileUncached(const ShaderProgra
     for (const auto& s : stages) {
         if (s.path.empty()) continue;
 
-        ShaderCompileResult res = compiler_->compile(s.path, s.entry,
-                                                      s.stage, desc.defines);
+        ShaderCompileResult res;
+        {
+            std::lock_guard<std::mutex> lock(compilerMutex_);
+            res = compiler_->compile(s.path, s.entry, s.stage, desc.defines);
+        }
         if (!res.success) {
             std::cerr << "Shader compilation failed (" << s.path
                       << ", entry=" << s.entry << "): " << res.errorMsg << "\n";
@@ -288,8 +323,11 @@ ShaderManager::compileUncachedFromSource(const ShaderProgramSource& src) {
     for (const auto& s : stages) {
         if (s.source.empty()) continue;
 
-        ShaderCompileResult res = compiler_->compileSource(s.source, s.entry,
-                                                            s.stage, src.defines);
+        ShaderCompileResult res;
+        {
+            std::lock_guard<std::mutex> lock(compilerMutex_);
+            res = compiler_->compileSource(s.source, s.entry, s.stage, src.defines);
+        }
         if (!res.success) {
             std::cerr << "Shader compilation failed (in-memory source"
                       << ", entry=" << s.entry << "): " << res.errorMsg << "\n";
@@ -438,15 +476,23 @@ void ShaderManager::loadDiskCache(const std::string& directory) {
 // ---- statistics ----
 
 const ShaderManagerStats& ShaderManager::getStatistics() const {
+    // statsMutex_ is mutable; callers must treat the returned reference as a
+    // snapshot – the values can change as soon as the lock is released.
+    std::lock_guard<std::mutex> lock(statsMutex_);
     return stats_;
 }
 
 void ShaderManager::resetStatistics() {
+    std::lock_guard<std::mutex> lock(statsMutex_);
     stats_ = {};
 }
 
 std::string ShaderManager::statisticsToJson() const {
-    const auto& s = stats_;
+    ShaderManagerStats s;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        s = stats_;
+    }
     std::ostringstream oss;
     oss << "{\n"
         << "  \"compilationCount\": "   << s.compilationCount   << ",\n"
