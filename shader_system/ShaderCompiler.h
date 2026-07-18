@@ -11,13 +11,24 @@ class IShaderCompiler {
 public:
     virtual ~IShaderCompiler() = default;
 
-    // Compile a single shader stage.
+    // Compile a single shader stage from a source file.
     // path   – source file path
     // entry  – entry-point function name
     // stage  – which pipeline stage
     // defines– preprocessor defines (name, value)
     virtual ShaderCompileResult compile(
         const std::string&                                    path,
+        const std::string&                                    entry,
+        ShaderStage                                           stage,
+        const std::vector<std::pair<std::string,std::string>>& defines) = 0;
+
+    // Compile a single shader stage from an in-memory source string.
+    // source – shader source code
+    // entry  – entry-point function name
+    // stage  – which pipeline stage
+    // defines– preprocessor defines (name, value)
+    virtual ShaderCompileResult compileSource(
+        const std::string&                                    source,
         const std::string&                                    entry,
         ShaderStage                                           stage,
         const std::vector<std::pair<std::string,std::string>>& defines) = 0;
@@ -32,6 +43,12 @@ public:
     explicit DirectXShaderCompiler(GraphicsAPI api);
     ShaderCompileResult compile(
         const std::string&                                    path,
+        const std::string&                                    entry,
+        ShaderStage                                           stage,
+        const std::vector<std::pair<std::string,std::string>>& defines) override;
+
+    ShaderCompileResult compileSource(
+        const std::string&                                    source,
         const std::string&                                    entry,
         ShaderStage                                           stage,
         const std::vector<std::pair<std::string,std::string>>& defines) override;
@@ -54,6 +71,12 @@ public:
         const std::string&                                    entry,
         ShaderStage                                           stage,
         const std::vector<std::pair<std::string,std::string>>& defines) override;
+
+    ShaderCompileResult compileSource(
+        const std::string&                                    source,
+        const std::string&                                    entry,
+        ShaderStage                                           stage,
+        const std::vector<std::pair<std::string,std::string>>& defines) override;
 };
 
 // ---------------------------------------------------------------------------
@@ -65,6 +88,32 @@ public:
     SPIRVShaderCompiler();
     ShaderCompileResult compile(
         const std::string&                                    path,
+        const std::string&                                    entry,
+        ShaderStage                                           stage,
+        const std::vector<std::pair<std::string,std::string>>& defines) override;
+
+    ShaderCompileResult compileSource(
+        const std::string&                                    source,
+        const std::string&                                    entry,
+        ShaderStage                                           stage,
+        const std::vector<std::pair<std::string,std::string>>& defines) override;
+};
+
+// ---------------------------------------------------------------------------
+// Metal compiler  (wraps Metal.framework / xcrun metal)
+// ---------------------------------------------------------------------------
+
+class MetalShaderCompiler : public IShaderCompiler {
+public:
+    MetalShaderCompiler();
+    ShaderCompileResult compile(
+        const std::string&                                    path,
+        const std::string&                                    entry,
+        ShaderStage                                           stage,
+        const std::vector<std::pair<std::string,std::string>>& defines) override;
+
+    ShaderCompileResult compileSource(
+        const std::string&                                    source,
         const std::string&                                    entry,
         ShaderStage                                           stage,
         const std::vector<std::pair<std::string,std::string>>& defines) override;

@@ -49,13 +49,28 @@ ShaderCompileResult DirectXShaderCompiler::compile(
     ShaderCompileResult result;
     try {
         std::string src = readFile(path);
+        result = compileSource(src, entry, stage, defines);
+    } catch (const std::exception& e) {
+        result.success  = false;
+        result.errorMsg = e.what();
+    }
+    return result;
+}
 
+ShaderCompileResult DirectXShaderCompiler::compileSource(
+    const std::string&                                    source,
+    const std::string&                                    entry,
+    ShaderStage                                           stage,
+    const std::vector<std::pair<std::string,std::string>>& defines)
+{
+    ShaderCompileResult result;
+    try {
         // -----------------------------------------------------------------
         // Production: replace this block with a real D3DCompile / DXC call.
         //
         //   ID3DBlob* code = nullptr;
         //   ID3DBlob* errors = nullptr;
-        //   HRESULT hr = D3DCompile(src.c_str(), src.size(), path.c_str(),
+        //   HRESULT hr = D3DCompile(source.c_str(), source.size(), nullptr,
         //                           macros, D3D_COMPILE_STANDARD_FILE_INCLUDE,
         //                           entry.c_str(), targetProfile(stage).c_str(),
         //                           D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
@@ -67,7 +82,7 @@ ShaderCompileResult DirectXShaderCompiler::compile(
         (void)defines;
         (void)targetProfile(stage); // suppress unused-function warning
 
-        result.bytecode = stringToBytes(src); // mock: ship source as bytecode
+        result.bytecode = stringToBytes(source); // mock: ship source as bytecode
         result.success  = true;
     } catch (const std::exception& e) {
         result.success  = false;
@@ -91,13 +106,28 @@ ShaderCompileResult GLSLShaderCompiler::compile(
     ShaderCompileResult result;
     try {
         std::string src = readFile(path);
+        result = compileSource(src, entry, stage, defines);
+    } catch (const std::exception& e) {
+        result.success  = false;
+        result.errorMsg = e.what();
+    }
+    return result;
+}
 
+ShaderCompileResult GLSLShaderCompiler::compileSource(
+    const std::string&                                    source,
+    const std::string&                                    entry,
+    ShaderStage                                           stage,
+    const std::vector<std::pair<std::string,std::string>>& defines)
+{
+    ShaderCompileResult result;
+    try {
         // Production: integrate glslang TProgram/TShader here.
         (void)entry;
         (void)stage;
         (void)defines;
 
-        result.bytecode = stringToBytes(src);
+        result.bytecode = stringToBytes(source);
         result.success  = true;
     } catch (const std::exception& e) {
         result.success  = false;
@@ -121,13 +151,87 @@ ShaderCompileResult SPIRVShaderCompiler::compile(
     ShaderCompileResult result;
     try {
         std::string src = readFile(path);
+        result = compileSource(src, entry, stage, defines);
+    } catch (const std::exception& e) {
+        result.success  = false;
+        result.errorMsg = e.what();
+    }
+    return result;
+}
 
+ShaderCompileResult SPIRVShaderCompiler::compileSource(
+    const std::string&                                    source,
+    const std::string&                                    entry,
+    ShaderStage                                           stage,
+    const std::vector<std::pair<std::string,std::string>>& defines)
+{
+    ShaderCompileResult result;
+    try {
         // Production: call shaderc_compiler_compile_into_spv() here.
         (void)entry;
         (void)stage;
         (void)defines;
 
-        result.bytecode = stringToBytes(src);
+        result.bytecode = stringToBytes(source);
+        result.success  = true;
+    } catch (const std::exception& e) {
+        result.success  = false;
+        result.errorMsg = e.what();
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// MetalShaderCompiler
+// ---------------------------------------------------------------------------
+
+MetalShaderCompiler::MetalShaderCompiler() {}
+
+ShaderCompileResult MetalShaderCompiler::compile(
+    const std::string&                                    path,
+    const std::string&                                    entry,
+    ShaderStage                                           stage,
+    const std::vector<std::pair<std::string,std::string>>& defines)
+{
+    ShaderCompileResult result;
+    try {
+        std::string src = readFile(path);
+        result = compileSource(src, entry, stage, defines);
+    } catch (const std::exception& e) {
+        result.success  = false;
+        result.errorMsg = e.what();
+    }
+    return result;
+}
+
+ShaderCompileResult MetalShaderCompiler::compileSource(
+    const std::string&                                    source,
+    const std::string&                                    entry,
+    ShaderStage                                           stage,
+    const std::vector<std::pair<std::string,std::string>>& defines)
+{
+    ShaderCompileResult result;
+    try {
+        // -----------------------------------------------------------------
+        // Production: replace this block with a real Metal compilation call.
+        // On macOS/iOS this typically uses the Metal framework:
+        //
+        //   MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
+        //   NSError* error = nil;
+        //   id<MTLLibrary> lib = [device newLibraryWithSource:src
+        //                                            options:options
+        //                                              error:&error];
+        //   if (!lib) { result.errorMsg = [[error localizedDescription] UTF8String]; }
+        //
+        // Alternatively, use `xcrun metal` from the command line to produce
+        // an .air intermediate or .metallib bytecode ahead of time.
+        // -----------------------------------------------------------------
+
+        (void)entry;
+        (void)stage;
+        (void)defines;
+
+        result.bytecode = stringToBytes(source); // mock: ship source as bytecode
         result.success  = true;
     } catch (const std::exception& e) {
         result.success  = false;
@@ -149,6 +253,8 @@ std::unique_ptr<IShaderCompiler> ShaderCompilerFactory::create(GraphicsAPI api) 
             return std::make_unique<GLSLShaderCompiler>();
         case GraphicsAPI::Vulkan:
             return std::make_unique<SPIRVShaderCompiler>();
+        case GraphicsAPI::Metal:
+            return std::make_unique<MetalShaderCompiler>();
         default:
             throw std::runtime_error("Unsupported graphics API");
     }

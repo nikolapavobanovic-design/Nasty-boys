@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -40,7 +41,7 @@ ShaderManager::ShaderManager(GraphicsAPI api)
 
 ShaderManager::~ShaderManager() = default;
 
-// ---- cache key ----
+// ---- cache keys ----
 
 std::string ShaderManager::cacheKey(const ShaderProgramCPU& desc) {
     std::string raw;
@@ -55,7 +56,33 @@ std::string ShaderManager::cacheKey(const ShaderProgramCPU& desc) {
     return std::to_string(fnv1a(raw));
 }
 
-// ---- compile (public) ----
+std::string ShaderManager::cacheKey(const ShaderProgramSource& src) {
+    // Prefix "src:" to avoid collisions with file-based keys.
+    std::string raw = "src:";
+    raw += src.vsSource + src.vsEntry;
+    raw += src.psSource + src.psEntry;
+    raw += src.csSource + src.csEntry;
+    raw += src.gsSource + src.gsEntry;
+    raw += src.tcsSource + src.tcsEntry;
+    raw += src.tesSource + src.tesEntry;
+    for (const auto& [k, v] : src.defines)
+        raw += k + "=" + v + ";";
+    return std::to_string(fnv1a(raw));
+}
+
+// ---- shared stats helper ----
+
+void ShaderManager::updateCompileStats(double ms) {
+    ++stats_.compilationCount;
+    if (stats_.compilationCount == 1)
+        stats_.averageCompileTime = ms;
+    else
+        stats_.averageCompileTime +=
+            (ms - stats_.averageCompileTime) /
+            static_cast<double>(stats_.compilationCount);
+}
+
+// ---- compile (public, file-based) ----
 
 std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& desc) {
     const std::string key = cacheKey(desc);
@@ -80,6 +107,7 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
         cache_[key]       = program;
         descriptors_[key] = desc;
         touchLRU(key);
+        enforceCapacity();
 
         if (desc.enableHotReload) {
             auto& watched = watchedFiles_[key];
@@ -97,6 +125,14 @@ std::shared_ptr<ShaderProgram> ShaderManager::compile(const ShaderProgramCPU& de
     }
 
     return program;
+}
+
+// ---- compileAsync (public, file-based) ----
+
+std::future<std::shared_ptr<ShaderProgram>>
+ShaderManager::compileAsync(const ShaderProgramCPU& desc) {
+    return std::async(std::launch::async,
+                      [this, desc]() { return compile(desc); });
 }
 
 // ---- compile variants ----
@@ -117,7 +153,46 @@ std::vector<std::shared_ptr<ShaderProgram>> ShaderManager::compileVariants(
     return results;
 }
 
-// ---- compileUncached (private) ----
+// ---- compileFromSource (public, source strings) ----
+
+std::shared_ptr<ShaderProgram>
+ShaderManager::compileFromSource(const ShaderProgramSource& src) {
+    const std::string key = cacheKey(src);
+
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        auto it = cache_.find(key);
+        if (it != cache_.end()) {
+            ++stats_.cacheHits;
+            touchLRU(key);
+            return it->second;
+        }
+    }
+
+    ++stats_.cacheMisses;
+    auto program = compileUncachedFromSource(src);
+    if (!program)
+        return nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        cache_[key] = program;
+        touchLRU(key);
+        enforceCapacity();
+    }
+
+    return program;
+}
+
+// ---- compileFromSourceAsync (public, source strings) ----
+
+std::future<std::shared_ptr<ShaderProgram>>
+ShaderManager::compileFromSourceAsync(const ShaderProgramSource& src) {
+    return std::async(std::launch::async,
+                      [this, src]() { return compileFromSource(src); });
+}
+
+// ---- compileUncached (private, file-based) ----
 
 std::shared_ptr<ShaderProgram> ShaderManager::compileUncached(const ShaderProgramCPU& desc) {
     auto program = std::make_shared<ShaderProgram>();
@@ -154,17 +229,56 @@ std::shared_ptr<ShaderProgram> ShaderManager::compileUncached(const ShaderProgra
     }
 
     program->isValid = true;
-    ++stats_.compilationCount;
 
     auto t1  = std::chrono::high_resolution_clock::now();
     double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    updateCompileStats(ms);
 
-    // Running average
-    if (stats_.compilationCount == 1)
-        stats_.averageCompileTime = ms;
-    else
-        stats_.averageCompileTime +=
-            (ms - stats_.averageCompileTime) / static_cast<double>(stats_.compilationCount);
+    return program;
+}
+
+// ---- compileUncachedFromSource (private, source strings) ----
+
+std::shared_ptr<ShaderProgram>
+ShaderManager::compileUncachedFromSource(const ShaderProgramSource& src) {
+    auto program = std::make_shared<ShaderProgram>();
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    struct StageInfo {
+        ShaderStage  stage;
+        std::string  source;
+        std::string  entry;
+    };
+
+    const StageInfo stages[] = {
+        { ShaderStage::Vertex,   src.vsSource,  src.vsEntry  },
+        { ShaderStage::Pixel,    src.psSource,  src.psEntry  },
+        { ShaderStage::Compute,  src.csSource,  src.csEntry  },
+        { ShaderStage::Geometry, src.gsSource,  src.gsEntry  },
+        { ShaderStage::Hull,     src.tcsSource, src.tcsEntry },
+        { ShaderStage::Domain,   src.tesSource, src.tesEntry },
+    };
+
+    for (const auto& s : stages) {
+        if (s.source.empty()) continue;
+
+        ShaderCompileResult res = compiler_->compileSource(s.source, s.entry,
+                                                            s.stage, src.defines);
+        if (!res.success) {
+            std::cerr << "Shader compilation failed (in-memory source"
+                      << ", entry=" << s.entry << "): " << res.errorMsg << "\n";
+            return nullptr;
+        }
+        program->stageBytecode[static_cast<uint8_t>(s.stage)] =
+            std::move(res.bytecode);
+    }
+
+    program->isValid = true;
+
+    auto t1  = std::chrono::high_resolution_clock::now();
+    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    updateCompileStats(ms);
 
     return program;
 }
@@ -233,6 +347,21 @@ void ShaderManager::clearMemoryCache() {
     descriptors_.clear();
     lruOrder_.clear();
     lruPos_.clear();
+}
+
+void ShaderManager::setCacheCapacity(size_t maxEntries) {
+    std::lock_guard<std::mutex> lock(cacheMutex_);
+    cacheCapacity_ = maxEntries;
+    if (cacheCapacity_ > 0) {
+        while (cache_.size() > cacheCapacity_ && !lruOrder_.empty()) {
+            const std::string& lruKey = lruOrder_.back();
+            cache_.erase(lruKey);
+            descriptors_.erase(lruKey);
+            watchedFiles_.erase(lruKey);
+            lruPos_.erase(lruKey);
+            lruOrder_.pop_back();
+        }
+    }
 }
 
 void ShaderManager::saveDiskCache(const std::string& directory) const {
@@ -312,6 +441,18 @@ void ShaderManager::touchLRU(const std::string& key) {
         lruOrder_.erase(it->second);
     lruOrder_.push_front(key);
     lruPos_[key] = lruOrder_.begin();
+}
+
+void ShaderManager::enforceCapacity() {
+    if (cacheCapacity_ == 0) return;
+    while (cache_.size() > cacheCapacity_ && !lruOrder_.empty()) {
+        const std::string& lruKey = lruOrder_.back();
+        cache_.erase(lruKey);
+        descriptors_.erase(lruKey);
+        watchedFiles_.erase(lruKey);
+        lruPos_.erase(lruKey);
+        lruOrder_.pop_back();
+    }
 }
 
 // ---- cache management (eviction) ----

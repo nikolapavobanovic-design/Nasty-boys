@@ -93,3 +93,28 @@ struct ShaderProgram {
     ShaderReflection reflection;
     bool             isValid = false;
 };
+
+// ---------------------------------------------------------------------------
+// In-memory shader program descriptor (source strings instead of file paths)
+// ---------------------------------------------------------------------------
+
+struct ShaderProgramSource {
+    // Stage source code strings (empty = stage unused)
+    std::string vsSource;   // Vertex shader
+    std::string psSource;   // Pixel / Fragment shader
+    std::string csSource;   // Compute shader
+    std::string gsSource;   // Geometry shader
+    std::string tcsSource;  // Hull / Tessellation-control shader
+    std::string tesSource;  // Domain / Tessellation-evaluation shader
+
+    // Entry points (default "main" for each stage)
+    std::string vsEntry  = "main";
+    std::string psEntry  = "main";
+    std::string csEntry  = "main";
+    std::string gsEntry  = "main";
+    std::string tcsEntry = "main";
+    std::string tesEntry = "main";
+
+    // Preprocessor defines: { "NAME", "VALUE" }
+    std::vector<std::pair<std::string, std::string>> defines;
+};

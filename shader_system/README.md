@@ -11,6 +11,9 @@ A production-ready, platform-agnostic shader management system for C++17 graphic
 - **Preprocessor defines** – pass `#define` name/value pairs at compile time
 - **Statistics tracking** – compilation count, cache hit/miss, average time
 - **Thread-safe cache** – mutex-guarded for multi-threaded renderers
+- **Async compilation** – non-blocking `compileAsync()` / `compileFromSourceAsync()` returning `std::future`
+- **In-memory source compilation** – compile from source strings without touching the filesystem via `compileFromSource()`
+- **Bounded cache** – automatic LRU eviction when a capacity limit is set with `setCacheCapacity()`
 
 ## File Structure
 
@@ -123,17 +126,64 @@ std::cout << "Cache hits   : " << stats.cacheHits         << "\n";
 std::cout << "Avg time     : " << stats.averageCompileTime << " ms\n";
 ```
 
+## In-Memory Source Compilation
+
+Compile shaders from in-memory source strings without touching the filesystem:
+
+```cpp
+ShaderProgramSource src;
+src.vsSource = R"(float4 VS() : SV_Position { return float4(0,0,0,1); })";
+src.psSource = R"(float4 PS() : SV_Target   { return float4(1,0,0,1); })";
+
+auto shader = manager.compileFromSource(src);
+if (shader && shader->isValid) {
+    // use bytecode...
+}
+```
+
+## Async Compilation
+
+Offload compilation to a background thread using `std::future`:
+
+```cpp
+// File-based async
+auto fut1 = manager.compileAsync(desc);
+
+// Source-string async
+auto fut2 = manager.compileFromSourceAsync(src);
+
+// ... do other work ...
+
+auto shader1 = fut1.get(); // blocks until done
+auto shader2 = fut2.get();
+```
+
+## Bounded Cache
+
+Limit the number of in-memory cache entries. The least-recently-used shader
+is evicted automatically whenever the limit is exceeded:
+
+```cpp
+manager.setCacheCapacity(256); // keep at most 256 compiled shaders
+
+// Passing 0 disables the limit (the default).
+manager.setCacheCapacity(0);
+```
+
 ## Integrating Real Compilers
 
 The back-ends in `ShaderCompiler.cpp` ship with **mock implementations** that return the raw source as bytecode. To use real compilers:
 
-| API        | Library / Tool          | Replace in                     |
-|------------|-------------------------|--------------------------------|
-| DirectX 11 | `D3DCompiler.lib`       | `DirectXShaderCompiler::compile` |
-| DirectX 12 | DXC (`dxcompiler.dll`)  | `DirectXShaderCompiler::compile` |
-| OpenGL     | `glslang`               | `GLSLShaderCompiler::compile`    |
-| Vulkan     | `shaderc` / SPIRV-Tools | `SPIRVShaderCompiler::compile`   |
-| Metal      | `Metal.framework`       | Add `MetalShaderCompiler` class  |
+| API        | Library / Tool          | Replace in                          |
+|------------|-------------------------|-------------------------------------|
+| DirectX 11 | `D3DCompiler.lib`       | `DirectXShaderCompiler::compileSource` |
+| DirectX 12 | DXC (`dxcompiler.dll`)  | `DirectXShaderCompiler::compileSource` |
+| OpenGL     | `glslang`               | `GLSLShaderCompiler::compileSource`    |
+| Vulkan     | `shaderc` / SPIRV-Tools | `SPIRVShaderCompiler::compileSource`   |
+| Metal      | `Metal.framework`       | `MetalShaderCompiler::compileSource`   |
+
+Both `compile()` (file-based) and `compileSource()` (in-memory string) delegate to the same back-end
+once the source is loaded, so only `compileSource()` needs to be updated per back-end.
 
 ## Supported Shader Stages
 
