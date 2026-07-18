@@ -30,3 +30,14 @@ if(MSVC)
         target_link_libraries(ShaderExample PRIVATE ${D3DCOMPILER_LIB})
     endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+enable_testing()
+
+add_executable(ShaderSystemTests tests/test_factory.cpp)
+target_link_libraries(ShaderSystemTests PRIVATE ShaderSystemLib)
+
+add_test(NAME ShaderSystemTests COMMAND ShaderSystemTests)

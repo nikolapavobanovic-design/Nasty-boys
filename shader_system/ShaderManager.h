@@ -4,6 +4,7 @@
 #include "ShaderCompiler.h"
 
 #include <functional>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -52,6 +53,10 @@ public:
 
     void clearMemoryCache();
 
+    // Evict least-recently-used cache entries until at most maxEntries remain.
+    // Hot-reload tracking and descriptors for evicted entries are also removed.
+    void evictLRU(size_t maxEntries);
+
     // Persist the in-memory cache to disk (directory path).
     void saveDiskCache(const std::string& directory) const;
 
@@ -76,6 +81,9 @@ public:
     const ShaderManagerStats& getStatistics() const;
     void resetStatistics();
 
+    // Returns a JSON string representation of the current statistics.
+    std::string statisticsToJson() const;
+
 private:
     // Derive a stable cache key from a descriptor.
     static std::string cacheKey(const ShaderProgramCPU& desc);
@@ -85,6 +93,10 @@ private:
 
     // Check whether any source file tracked for a cache entry has changed.
     bool hasSourceChanged(const std::string& key) const;
+
+    // Move key to the front of the LRU list (most recently used).
+    // Must be called with cacheMutex_ held.
+    void touchLRU(const std::string& key);
 
     // -----------------------------------------------------------------------
     // Members
@@ -103,6 +115,11 @@ private:
 
     // Original descriptors kept for recompilation
     std::unordered_map<std::string, ShaderProgramCPU>             descriptors_;
+
+    // LRU eviction tracking: front = most recently used, back = least recently used
+    std::list<std::string>                                         lruOrder_;
+    std::unordered_map<std::string,
+        std::list<std::string>::iterator>                          lruPos_;
 
     ReloadCallback   reloadCallback_;
     ShaderManagerStats stats_;
