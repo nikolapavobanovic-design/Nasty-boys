@@ -109,16 +109,18 @@ static void test_factory_metal_throws() {
     end("factory_metal_throws", fb);
 }
 
-static void test_factory_dx11_dx12_return_distinct_instances() {
-    begin("factory_dx11_dx12_return_distinct_instances");
+static void test_factory_same_api_returns_distinct_instances() {
+    begin("factory_same_api_returns_distinct_instances");
     int fb = g_failed;
 
-    auto c11 = ShaderCompilerFactory::create(GraphicsAPI::DirectX11);
-    auto c12 = ShaderCompilerFactory::create(GraphicsAPI::DirectX12);
-    // Each call returns a fresh unique_ptr; pointer values must differ.
-    EXPECT_NE(c11.get(), c12.get());
+    // Two calls with the same API must produce independent unique_ptr instances.
+    auto c1 = ShaderCompilerFactory::create(GraphicsAPI::DirectX11);
+    auto c2 = ShaderCompilerFactory::create(GraphicsAPI::DirectX11);
+    EXPECT_NE(c1.get(), c2.get());
+    EXPECT_TRUE(dynamic_cast<DirectXShaderCompiler*>(c1.get()) != nullptr);
+    EXPECT_TRUE(dynamic_cast<DirectXShaderCompiler*>(c2.get()) != nullptr);
 
-    end("factory_dx11_dx12_return_distinct_instances", fb);
+    end("factory_same_api_returns_distinct_instances", fb);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,38 +174,35 @@ static void test_evict_lru_does_nothing_when_under_limit() {
     end("evict_lru_does_nothing_when_under_limit", fb);
 }
 
-static void test_evict_lru_zero_clears_all() {
-    begin("evict_lru_zero_clears_all");
+static void test_evict_lru_on_empty_cache_is_safe() {
+    // Verify that calling evictLRU(0) on an empty cache does not crash and
+    // leaves the manager in a consistent, usable state.
+    begin("evict_lru_on_empty_cache_is_safe");
     int fb = g_failed;
 
-    // We cannot compile real shaders in a test (no source files), but we can
-    // verify that evictLRU(0) on an already-empty manager leaves it consistent.
     ShaderManager mgr(GraphicsAPI::Vulkan);
     mgr.evictLRU(0);
-    // After eviction the manager must still be usable.
+    // Manager must still be usable after eviction of empty cache.
     mgr.resetStatistics();
     EXPECT_EQ(mgr.getStatistics().cacheHits, 0u);
 
-    end("evict_lru_zero_clears_all", fb);
+    end("evict_lru_on_empty_cache_is_safe", fb);
 }
 
-static void test_evict_lru_reduces_cache_size() {
-    // This test exercises the LRU path by directly manipulating stats via
-    // the public interface, and verifying that a cleared cache reports no hits
-    // on re-use.  We cannot drive actual compilation without shader source
-    // files, so we verify the observable contract: after clearMemoryCache()
-    // the next compile call increments cacheMisses, not cacheHits.  This
-    // implicitly tests that the LRU structures were also cleared (otherwise
-    // an assertion in touchLRU would be inconsistent).
-    begin("evict_lru_reduces_cache_size");
+static void test_evict_lru_noop_when_under_limit_after_clear() {
+    // Verify that evictLRU does not corrupt the manager state when the cache
+    // is empty after clearMemoryCache(), and that the LRU structures are also
+    // cleared (i.e. subsequent eviction calls are safe and idempotent).
+    begin("evict_lru_noop_when_under_limit_after_clear");
     int fb = g_failed;
 
     ShaderManager mgr(GraphicsAPI::DirectX11);
-    mgr.clearMemoryCache();   // also resets LRU structures
+    mgr.clearMemoryCache();   // resets cache AND LRU structures
     mgr.evictLRU(0);          // no-op on empty cache; must not crash
+    mgr.evictLRU(0);          // idempotent
     EXPECT_EQ(mgr.getStatistics().cacheHits, 0u);
 
-    end("evict_lru_reduces_cache_size", fb);
+    end("evict_lru_noop_when_under_limit_after_clear", fb);
 }
 
 // ---------------------------------------------------------------------------
@@ -218,14 +217,14 @@ int main() {
     test_factory_opengl_returns_glsl_compiler();
     test_factory_vulkan_returns_spirv_compiler();
     test_factory_metal_throws();
-    test_factory_dx11_dx12_return_distinct_instances();
+    test_factory_same_api_returns_distinct_instances();
 
     test_statistics_to_json_contains_expected_keys();
     test_statistics_to_json_zero_values_after_reset();
 
     test_evict_lru_does_nothing_when_under_limit();
-    test_evict_lru_zero_clears_all();
-    test_evict_lru_reduces_cache_size();
+    test_evict_lru_on_empty_cache_is_safe();
+    test_evict_lru_noop_when_under_limit_after_clear();
 
     std::cout << "\n---\n"
               << g_tests  << " tests, "
