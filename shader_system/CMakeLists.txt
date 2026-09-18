@@ -22,6 +22,11 @@ target_include_directories(ShaderSystemLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(ShaderExample Example.cpp)
 target_link_libraries(ShaderExample PRIVATE ShaderSystemLib)
+add_custom_command(TARGET ShaderExample POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/example_shaders
+            $<TARGET_FILE_DIR:ShaderExample>/example_shaders
+)
 
 # Copy example shaders next to the executable so relative paths resolve at runtime.
 add_custom_command(TARGET ShaderExample POST_BUILD
